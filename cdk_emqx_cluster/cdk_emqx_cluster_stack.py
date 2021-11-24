@@ -4,7 +4,7 @@ from aws_cdk import core as cdk
 # the CDK's core module.  The following line also imports it as `core` for use
 # with examples from the CDK Developer's Guide, which are in the process of
 # being updated to use `cdk`.  You may delete this import if you don't need it.
-#from aws_cdk import core
+# from aws_cdk import core
 from aws_cdk import (core as cdk, aws_ec2 as ec2, aws_ecs as ecs,
                      core as core,
                      aws_logs as aws_logs,
@@ -17,8 +17,10 @@ from aws_cdk import (core as cdk, aws_ec2 as ec2, aws_ecs as ecs,
                      aws_iam as iam,
                      aws_ssm as ssm,
                      aws_s3 as s3,
+                     aws_efs as efs,
+                     aws_msk as msk,
                      aws_ecs_patterns as ecs_patterns)
-from aws_cdk.core import Duration, CfnParameter
+from aws_cdk.core import Duration, CfnParameter, RemovalPolicy
 from base64 import b64encode
 import sys
 import logging
@@ -51,6 +53,8 @@ class CdkEmqxClusterStack(cdk.Stack):
     def __init__(self, scope: cdk.Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
         self.exp1 = None
+        self.kafka = None
+        self.shared_efs = None
 
         # The code that defines your stack goes here
         if self.node.try_get_context("tags"):
@@ -76,15 +80,18 @@ class CdkEmqxClusterStack(cdk.Stack):
         self.setup_sg()
         self.setup_r53()
         self.setup_lb()
+        #self.setup_shared_efs()
 
         # Setup Bastion
         self.setup_bastion()
 
         # Create Application Services
+        self.setup_kafka()
         self.setup_emqx(self.numEmqx)
         self.setup_etcd()
         self.setup_loadgen(self.numLg)
         self.setup_monitoring(self.hosts)
+
 
         # Outputs
         self.cfn_outputs()
@@ -99,12 +106,37 @@ class CdkEmqxClusterStack(cdk.Stack):
         core.CfnOutput(self, "SSH Entrypoint",
                        value=self.bastion.instance_public_ip)
         core.CfnOutput(self, "Hosts are", value='\n'.join(self.hosts))
+        if self.shared_efs:
+            core.CfnOutput(self, 'Shared efs id:', value='%s.efs.%s.amazonaws.com' % (
+                self.region, self.shared_efs.file_system_id))
         core.CfnOutput(self, "SSH Commands for Access",
                        value="ssh -A -l ec2-user %s -L8888:%s:80 -L 9999:%s:80 -L 13000:%s:3000"
                        % (self.bastion.instance_public_ip, self.nlb.load_balancer_dns_name, self.mon_lb, self.mon_lb)
                        )
         if self.exp1:
             core.CfnOutput(self, "Exp1:", value=self.exp1.ref)
+        # if self.kafka:
+        #     cdk.CfnOutput(self, "BootstrapBrokers", value=self.kafka.bootstrap_brokers)
+        #     cdk.CfnOutput(self, "BootstrapBrokersTls", value=self.kafka.bootstrap_brokers_tls)
+        #     cdk.CfnOutput(self, "BootstrapBrokersSaslScram", value=self.kafka.bootstrap_brokers_sasl_scram)
+        #     cdk.CfnOutput(self, "ZookeeperConnection", value=self.kafka.zookeeper_connection_string)
+        #     cdk.CfnOutput(self, "ZookeeperConnectionTls", value=self.kafka.zookeeper_connection_string_tls)
+
+    def setup_shared_efs(self):
+        self.sg_efs_mt = ec2.SecurityGroup(self, "sg_efs_mt", vpc=self.vpc)
+        self.sg_efs_mt.add_ingress_rule(
+            peer=self.sg, connection=ec2.Port.tcp(2049))
+        self.shared_efs = efs.FileSystem(self, id='shared-data', vpc=self.vpc,
+                                         removal_policy=core.RemovalPolicy.DESTROY,
+                                         lifecycle_policy=efs.LifecyclePolicy.AFTER_14_DAYS,
+                                         performance_mode=efs.PerformanceMode.GENERAL_PURPOSE
+                                         )
+        self.shared_mt = efs.CfnMountTarget(self, 'efs-shared-mp',
+                                            file_system_id=self.shared_efs.file_system_id,
+                                            security_groups=[
+                                                self.sg_efs_mt.security_group_id],
+                                            subnet_id=self.vpc.private_subnets[0].subnet_id
+                                            )
 
     def setup_loadgen(self, N):
         vpc = self.vpc
@@ -138,7 +170,7 @@ EOF
 EOF
             chmod +x /root/emqtt-bench/with-ipaddrs.sh
             """
-            )
+                                   )
             multipartUserData = ec2.MultipartUserData()
             configIps.add_commands("hostname %s" % name + self.domain)
             multipartUserData.add_part(
@@ -206,9 +238,27 @@ EOF
                                          id='MonitorTask',
                                          cpu=512,
                                          memory_limit_mib=2048
-                                         #volumes = [ecs.Volume(name = cfgVolName)]
+                                         # volumes = [ecs.Volume(name = cfgVolName)]
                                          )
         task.add_volume(name='prom_config')
+
+        # self.ap_prom_data = efs.AccessPoint(self, "shared-data-prom",
+        #                                     path='/prometheus',
+        #                                     create_acl=efs.Acl(
+        #                                         owner_uid="65534",
+        #                                         owner_gid="65534",
+        #                                         permissions="750"
+        #                                     ),
+        #                                     posix_user=efs.PosixUser(
+        #                                         uid="65534",  # nobody
+        #                                         gid="65534"),
+        #                                     file_system=self.shared_efs)
+
+        # task.add_volume(name='prom_data', efs_volume_configuration=ecs.EfsVolumeConfiguration(
+        #     file_system_id=self.shared_efs.file_system_id,
+        #     # root_directory='/prometheus'
+        # ))
+
         c_config = task.add_container('config-prometheus',
                                       image=ecs.ContainerImage.from_registry(
                                           'bash'),
@@ -234,6 +284,7 @@ EOF
                                           command=[
                                               "--config.file=/etc/prometheus/private/prometheus.yml",
                                               "--storage.tsdb.path=/prometheus",
+                                              # "--web.enable-admin-api",
                                               "--web.console.libraries=/usr/share/prometheus/console_libraries",
                                               "--web.console.templates=/usr/share/prometheus/consoles"
                                           ],
@@ -244,6 +295,8 @@ EOF
                                           )
         c_prometheus.add_mount_points(ecs.MountPoint(
             read_only=False, container_path='/etc/prometheus/private', source_volume='prom_config'))
+       #  c_prometheus.add_mount_points(ecs.MountPoint(
+       #     read_only=False, container_path='/prometheus', source_volume='prom_data'))
         c_prometheus.add_container_dependencies(ecs.ContainerDependency(
             container=c_config, condition=ecs.ContainerDependencyCondition.COMPLETE))
 
@@ -323,9 +376,11 @@ EOF
             userdata_init.add_commands('cd /root')
             userdata_init.add_commands(self.emqx_src_cmd)
             userdata_init.add_commands(f"EMQX_CDK_DB_BACKEND={self.dbBackend}")
-            userdata_init.add_commands(f"EMQX_CDK_DB_BACKEND_ROLE={dbBackendRole}")
+            userdata_init.add_commands(
+                f"EMQX_CDK_DB_BACKEND_ROLE={dbBackendRole}")
             if not isCore:
-                userdata_init.add_commands(f"EMQX_CDK_CORE_NODES={','.join(self.emqx_core_nodes)}")
+                userdata_init.add_commands(
+                    f"EMQX_CDK_CORE_NODES={','.join(self.emqx_core_nodes)}")
             userdata_init.add_commands(emqx_user_data)
             multipartUserData = ec2.MultipartUserData()
             multipartUserData.add_part(
@@ -448,7 +503,7 @@ EOF
 
     def setup_vpc(self):
         vpc = ec2.Vpc(self, "VPC EMQX %s" % self.cluster_name,
-                      max_azs=1,
+                      max_azs=99,
                       cidr="10.10.0.0/16",
                       # configuration will create 3 groups in 2 AZs = 6 subnets.
                       subnet_configuration=[
@@ -461,7 +516,19 @@ EOF
                               subnet_type=ec2.SubnetType.PRIVATE,
                               name="Private",
                               cidr_mask=24
-                          )],
+                          ),
+                        #   ec2.SubnetConfiguration(
+                        #       subnet_type=ec2.SubnetType.PRIVATE,
+                        #       name="Private2",
+                        #       cidr_mask=24
+                        #   ),
+                        #   ec2.SubnetConfiguration(
+                        #       subnet_type=ec2.SubnetType.PRIVATE,
+                        #       name="Private3",
+                        #       cidr_mask=24
+                        #   )
+
+                          ],
                       nat_gateways=1
                       )
         self.vpc = vpc
@@ -519,9 +586,9 @@ EOF
     def setup_s3(self):
         self.s3_bucket_name = 'emqx-cdk-cluster'
         if not s3.Bucket.from_bucket_name(self, self.s3_bucket_name, self.s3_bucket_name):
-            s3.Bucket(self, id = self.s3_bucket_name, auto_delete_objects = False,
-                    bucket_name = self.s3_bucket_name,
-            )
+            s3.Bucket(self, id=self.s3_bucket_name, auto_delete_objects=False,
+                      bucket_name=self.s3_bucket_name
+                      )
 
     def setup_bastion(self):
         """
@@ -529,6 +596,7 @@ EOF
         """
         bastion = ec2.BastionHostLinux(self, "Bastion",
                                        vpc=self.vpc,
+                                       # security_group=[self.sg.security_group_id, self.sg_efs_mt.security_group_id],
                                        subnet_selection=ec2.SubnetSelection(
                                            subnet_type=ec2.SubnetType.PUBLIC),
                                        instance_name="BastionHostLinux %s" % self.cluster_name,
@@ -549,6 +617,7 @@ EOF
                                       vpc=self.vpc,
                                       internet_facing=False,
                                       cross_zone_enabled=True,
+                                      vpc_subnets=ec2.SubnetSelection(one_per_az=True),
                                       load_balancer_name="emqx-nlb-%s" % self.cluster_name)
         r53.ARecord(self, "AliasRecord",
                     zone=self.int_zone,
@@ -577,16 +646,20 @@ EOF
         dbBackend = self.node.try_get_context('emqx_db_backend') or "mnesia"
         dbBackendChoices = ("mnesia", "rlog")
         if dbBackend not in dbBackendChoices:
-            logging.error(f"👎 parameter `emqx_db_backend' must be one of: {dbBackendChoices}")
+            logging.error(
+                f"👎 parameter `emqx_db_backend' must be one of: {dbBackendChoices}")
             raise RuntimeError(f"invalid `emqx_db_backend': {dbBackend}")
         self.dbBackend = dbBackend
 
         # Number of core nodes. Only relevant if `emqx_db_backend' = "rlog"
         # default: same as `emqx_n'
-        numCoreNodes = int(self.node.try_get_context('emqx_num_core_nodes') or self.numEmqx)
+        numCoreNodes = int(self.node.try_get_context(
+            'emqx_num_core_nodes') or self.numEmqx)
         if numCoreNodes > self.numEmqx:
-            logging.error(f"👎 parameter `emqx_num_core_nodes' must be less or equal to `emqx_n'")
-            raise RuntimeError(f"invalid `emqx_num_core_nodes': {numCoreNodes}")
+            logging.error(
+                f"👎 parameter `emqx_num_core_nodes' must be less or equal to `emqx_n'")
+            raise RuntimeError(
+                f"invalid `emqx_num_core_nodes': {numCoreNodes}")
         self.numCoreNodes = numCoreNodes
 
         # LOADGEN Instance Type
@@ -600,6 +673,9 @@ EOF
         # Extra EBS vol size for EMQX DATA per EMQX Instance
         self.emqx_ebs_vol_size = self.node.try_get_context('emqx_ebs')
 
+        # Kafka
+        self.kafka_ebs_vol_size = self.node.try_get_context('kafka_ebs') or None
+
         # EMQX source
         self.emqx_src_cmd = self.node.try_get_context(
             'emqx_src') or "git clone https://github.com/emqx/emqx"
@@ -610,10 +686,18 @@ EOF
             logging.warning("💾  with extra vol %G  for EMQX" %
                             int(self.emqx_ebs_vol_size))
 
+        if self.kafka_ebs_vol_size:
+            logging.warning("💾  with extra vol %G  for Kafka, Kafka will be deployed" %
+                            int(self.kafka_ebs_vol_size))
+
+
         logging.warning(f"💽  DB backend: {self.dbBackend}")
         if self.dbBackend == "rlog":
             numReplicants = self.numEmqx - self.numCoreNodes
-            logging.warning(f"💽    with {numReplicants} replicant and {self.numCoreNodes} core node(s)")
+            logging.warning(
+                f"💽    with {numReplicants} replicant and {self.numCoreNodes} core node(s)")
+
+
 
     @staticmethod
     def attach_ssm_policy(role):
@@ -626,20 +710,119 @@ EOF
         if not policy:
             # https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-arn-format.html
             resource = core.Arn.format(core.ArnComponents(service='s3',
-                                                          account='', # acc should not be set for s3 arn
+                                                          account='',  # acc should not be set for s3 arn
                                                           region='',  # region should not be set for s3 arn
                                                           resource=self.s3_bucket_name,  # bucket name
                                                           resource_name=self.cluster_name+'*'
                                                           ), self)
 
             statement_all = iam.PolicyStatement(actions=['s3:*'],
-                                            effect=iam.Effect.ALLOW,
-                                            resources=[resource])
+                                                effect=iam.Effect.ALLOW,
+                                                resources=[resource])
             statement_list = iam.PolicyStatement(actions=['s3:List*'],
-                                            effect=iam.Effect.ALLOW,
-                                            resources=['*'])
+                                                 effect=iam.Effect.ALLOW,
+                                                 resources=['*'])
 
-            policy = iam.Policy(self, id=id, statements=[statement_all, statement_list])
+            policy = iam.Policy(self, id=id, statements=[
+                                statement_all, statement_list])
             self.s3_bucket_policy = policy
 
         role.attach_inline_policy(policy)
+
+    def setup_kafka0(self):
+        if not self.kafka_ebs_vol_size:
+            self.kafka=None
+            return
+
+        kafka_sg = ec2.SecurityGroup(self, id='sg_kafka', vpc=self.vpc)
+        kafka_sg.add_ingress_rule(ec2.Peer.any_ipv4(), ec2.Port.all_traffic())
+        kafka_sg.add_ingress_rule(ec2.Peer.any_ipv6(), ec2.Port.all_traffic())
+
+        # Kafka Internal Access
+        self.sg.add_ingress_rule(ec2.Peer.any_ipv4(),
+                            ec2.Port.tcp(9092), 'kafka-plain-int')
+        self.sg.add_ingress_rule(ec2.Peer.any_ipv4(),
+                            ec2.Port.tcp(9094), 'kafka-tls-int')
+        self.sg.add_ingress_rule(ec2.Peer.any_ipv4(),
+                            ec2.Port.tcp(9096), 'kafka-sasl-int')
+        self.sg.add_ingress_rule(ec2.Peer.any_ipv4(),
+                            ec2.Port.tcp(2181), 'zk-plain-int')
+        self.sg.add_ingress_rule(ec2.Peer.any_ipv4(),
+                            ec2.Port.tcp(2181), 'zk-plain-int')
+        ClientAuth=msk.ClientAuthentication.sasl(scram=False)
+        #ClientAuth.sasl(scram=False)
+        #ClientAuth.tls(certificate_authorities=[])
+        client_authentication=msk.CfnCluster.ClientAuthenticationProperty(
+        sasl=msk.CfnCluster.SaslProperty(
+            iam=msk.CfnCluster.IamProperty(
+                enabled=False
+            ),
+            scram=msk.CfnCluster.ScramProperty(
+                enabled=False
+            )
+        ),
+        tls=msk.CfnCluster.TlsProperty(
+            certificate_authority_arn_list=["certificateAuthorityArnList"],
+            enabled=False
+        ),
+        unauthenticated=msk.CfnCluster.UnauthenticatedProperty(
+            enabled=False
+        )
+         ),
+        self.kafka = msk.Cluster(self, id='kafka', cluster_name=self.cluster_name+'kafka',
+                kafka_version=msk.KafkaVersion.V2_6_0,
+                ebs_storage_info=msk.EbsStorageInfo(volume_size=10),
+                vpc=self.vpc, number_of_broker_nodes=1,
+                vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE, one_per_az=True),
+                client_authentication=client_authentication,
+                encryption_in_transit=msk.EncryptionInTransitConfig(
+                                   client_broker=msk.ClientBrokerEncryption.TLS_PLAINTEXT,
+                                   enable_in_cluster=True
+                                      ),
+                removal_policy=core.RemovalPolicy.DESTROY, security_groups=[kafka_sg]
+                )
+        # self.kafka.connections.allow_from(
+        #                         ec2.Peer.any_ipv4(),
+        #                         ec2.Port.tcp(2181))
+        # self.kafka.connections.allow_from(
+        #                         ec2.Peer.any_ipv4(),
+        #                         ec2.Port.tcp(9092))
+        # self.kafka.connections.allow_from(
+        #                         ec2.Peer.any_ipv4(),
+        #                         ec2.Port.tcp(9094))
+        # self.kafka.connections.allow_from(
+        #                         ec2.Peer.any_ipv4(),
+        #                         ec2.Port.tcp(9096))
+
+
+    def setup_kafka(self):
+        # tags is of type object
+        kafka_sg = ec2.SecurityGroup(self, id='sg_kafka', vpc=self.vpc)
+        kafka_sg.add_ingress_rule(ec2.Peer.any_ipv4(), ec2.Port.all_traffic())
+        kafka_sg.add_ingress_rule(ec2.Peer.any_ipv6(), ec2.Port.all_traffic())
+
+        cfn_cluster = msk.CfnCluster(self, "kafka",
+            broker_node_group_info=msk.CfnCluster.BrokerNodeGroupInfoProperty(
+                client_subnets=[self.vpc.private_subnets[0].subnet_id,
+                                self.vpc.private_subnets[1].subnet_id],
+                instance_type="kafka.m5.large",
+
+                # the properties below are optional
+                broker_az_distribution="DEFAULT",
+                # connectivity_info=msk.CfnCluster.ConnectivityInfoProperty(
+                #     public_access=msk.CfnCluster.PublicAccessProperty(
+                #         type="DISABLED"
+                #     )
+                # ),
+                security_groups=[kafka_sg.security_group_id],
+
+                storage_info=msk.CfnCluster.StorageInfoProperty(
+                    ebs_storage_info=msk.CfnCluster.EBSStorageInfoProperty(
+                        volume_size=10
+                    )
+                )
+            ),
+            cluster_name=self.cluster_name+'kafka',
+            kafka_version="2.6.2",
+            number_of_broker_nodes=2,
+        )
