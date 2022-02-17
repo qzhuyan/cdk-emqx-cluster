@@ -52,7 +52,7 @@ gen_tc() {
     sleep 300;
     ts_recover_finish=$(date '+%s')
     echo "Recover finish at ${ts_recover_finish}"
-    $BASEDIR/check_metrics.py "http://127.0.0.1:19090" "$ts_warmup_finish" 5m
+    $BASEDIR/check_metrics.py "http://127.0.0.1:19090" "$ts_recover_finish" 5m
 
     # step 5: collect logs
     echo "Collecting logs"
