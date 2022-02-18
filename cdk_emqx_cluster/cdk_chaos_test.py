@@ -1,6 +1,6 @@
 
 from aws_cdk import core as cdk
-
+from aws_cdk import aws_lambda as _lambda
 # For consistency with other languages, `cdk` is the preferred import name for
 # the CDK's core module.  The following line also imports it as `core` for use
 # with examples from the CDK Developer's Guide, which are in the process of
@@ -11,8 +11,11 @@ from aws_cdk import (core as cdk, aws_ec2 as ec2, aws_ecs as ecs,
                      aws_logs as aws_logs,
                      aws_fis as fis,
                      aws_iam as iam,
-                     aws_ssm as ssm
+                     aws_ssm as ssm,
+                     aws_events as events,
+                     aws_events_targets as targets
                      )
+
 from aws_cdk.core import Duration, CfnParameter
 from base64 import b64encode
 import sys
@@ -27,7 +30,8 @@ class CdkChaosTest(cdk.Stack):
     https://docs.aws.amazon.com/fis/latest/userguide/fis-actions-reference.html
     https://docs.aws.amazon.com/fis/latest/userguide/actions-ssm-agent.html
     """
-    def __init__(self, scope: cdk.Construct, construct_id: str, cluster_name: str, **kwargs) -> None:
+    def __init__(self, scope: cdk.Construct, construct_id: str, cluster_name: str,
+                 target_stack: core.Stack(), **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
         self.cluster_name = cluster_name
         role = IamRoleFis(self, id='emqx-fis-role')
@@ -126,6 +130,31 @@ class CdkChaosTest(cdk.Stack):
                        'stop_traffic.yaml', service='loadgen')
         ]
 
+        # chaos_run=_lambda.Function(
+        #     self, 'chaostest',
+        #     runtime=_lambda.Runtime.PYTHON_3_7,
+        #     code=_lambda.Code.from_asset('lambda'),
+        #     handler='chaos_test.handler',
+        #     environment={'cluster_name' : self.cluster_name},
+        #     vpc=target_stack.vpc,
+        #     timeout=core.Duration.seconds(900)
+        # )
+
+        # chaos_run.add_to_role_policy(iam.PolicyStatement(actions=['ssm:List*',
+        #                                                           'ssm:SendCommand',
+        #                                                           'fis:ListExperimentTemplates',
+        #                                                           'fis:Get*',
+        #                                                           'fis:StartExperiment',
+        #                                                           ],
+        #                                                  effect=iam.Effect.ALLOW,
+        #                                                  resources=['*'] # @TODO restrict resources
+        #                                                  ))
+
+        # rule = events.Rule(self, "Schedule Rule",
+        #                    schedule=events.Schedule.cron(minute="0", hour="4")
+        #                    )
+        # rule.add_target(targets.LambdaFunction(chaos_run))
+
 class ControlCmd(ssm.CfnDocument):
     def __init__(self, scope: cdk.Construct, construct_id: str, doc_name: str, service: str, **kwargs) -> None:
         content = yaml.safe_load(open("./ssm_docs/" + doc_name).read())
@@ -139,7 +168,7 @@ class ControlCmd(ssm.CfnDocument):
                          content=content,
                          **kwargs)
         # AWS limitation we have to override the physical id
-        self.phid_name='%s-%s'%(construct_id, scope.cluster_name)
+        self.phid_name='%s-%s'%(scope.cluster_name, construct_id)
         self.add_property_override('Name', self.phid_name)
 
 class CdkExperiment(fis.CfnExperimentTemplate):

@@ -24,7 +24,7 @@ for metric_name in ['emqx_client_subscribe', 'emqx_messages_publish', 'emqx_clie
     # example: [{'metric': {}, 'value': [1644946184, '1578.9473684210525']}]
     res=prom.custom_query(query_str, {'time': time_at})
 
-    if int(res[0]['value'][0]) == 0:
+    if int(res[0]['value'][1]) == 0:
         error_exit("Error: traffic error: {{metric_name}} is 0")
 
     # 2) check: all emqx nodes get traffic distribution

@@ -31,7 +31,7 @@ import json
 import random
 import string
 
-from chaos_test import SsmDocExperiment,IamRoleFis,ControlCmd
+from cdk_chaos_test import SsmDocExperiment,IamRoleFis,ControlCmd
 
 linux_ami = ec2.GenericLinuxImage({
     # https://cloud-images.ubuntu.com/locator/ec2/

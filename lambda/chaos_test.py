@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-
+import sys
 import json
 import boto3
 import os
@@ -9,21 +9,24 @@ import time
 import json
 import random
 
+"""
+This python script is designed for AWS lambda.
+But it could be called from local as well by defining following env_vars
+prom_host=127.0.0.1:19090
+fault_name="emqx-high-io-100"
+
+"""
+
 ssm = boto3.client('ssm')
 fis = boto3.client('fis')
 
-def cmd_stop_traffic(cluster_name):
-    doc_name='-'.join(['stop_traffic', cluster_name])
-    res = ssm.send_command(DocumentName=doc_name, TimeoutSeconds=30,
-                           Targets=[{"Key":"tag:cluster","Values":[cluster_name]},
-                                    {"Key":"tag:service","Values":["loadgen"]}]
-                           )
-
-
-    return res
+def error_exit(info:str):
+    print(info)
+    sys.exit(1)
 
 def run_cmd_on(cluster_name, command_name, services, cmd_parms={}):
-    doc_name='-'.join([command_name, cluster_name])
+    doc_name='-'.join([cluster_name, command_name])
+    print(f"run {command_name} ...")
     res = ssm.send_command(DocumentName=doc_name, TimeoutSeconds=30,
                            Targets=[{"Key":"tag:cluster","Values":[cluster_name]},
                                     {"Key":"tag:service","Values":services}],
@@ -54,39 +57,36 @@ def start_traffic(cluster_name, loadgen_args):
 def stop_traffic(cluster_name):
     return run_cmd_on(cluster_name, 'stop_traffic', ['loadgen'])
 
-
 def wait_for_finish(run):
-    if 'Command' in run:
+    if not run:
+        error_exit("Error: unknown run to wait for ...")
+    elif 'Command' in run:
         cmd=run['Command']
         cmd_id=cmd['CommandId']
+        time.sleep(5)
         res=ssm.list_command_invocations(CommandId=cmd_id, Details=True)
         if res['CommandInvocations'] == []:
-            print("Error: command invoke failed, no targets: %s" % cmd)
-            return False
+            # ensures we have >1 target invocations.
+            error_exit("Error: command invoke failed, no invocations: %s" % cmd)
         for invk in res['CommandInvocations']:
             status = invk['Status']
             if status == 'Success':
                 pass
             elif status in ['Pending', 'InProgress', 'Delayed']:
-                time.sleep(5)
+                time.sleep(3)
                 wait_for_finish(run)
             else:
-                print("command invoke failed: %s" % invk )
-                return False
+                error_exit("command invoke failed: %s" % invk )
     elif 'experiment' in run:
         exp=run['experiment']
         exp_id=exp['id']
         res=fis.get_experiment(id=exp_id)
-        print(res)
         status=res['experiment']['state']['status']
         if status in ['completed', 'failed']:
             return status
         else:
             time.sleep(5)
             wait_for_finish(run)
-    else:
-        print("Error: unknown run to wait for ...")
-        return False
 
 def find_exp_id(cluster_name, fault_name, next_token=None):
     if next_token:
@@ -94,17 +94,17 @@ def find_exp_id(cluster_name, fault_name, next_token=None):
     else:
         res=fis.list_experiment_templates(maxResults=100)
     for t in res['experimentTemplates']:
-        print(t)
         if t['tags']['cluster'] == cluster_name and t['tags']['fault_name'] == fault_name:
             return t['id']
     if 'nextToken' in res:
         find_exp_id(cluster_name, fault_name, next_token=res['nextToken'])
-    return None
+    else:
+        return None
 
 def inject_fault(cluster_name, fault_name):
     fid = find_exp_id(cluster_name, fault_name)
     if not fid:
-        return False
+        error_exit(f"Error: inject_fault, fault id not found for {fault_name}")
     res=fis.start_experiment(experimentTemplateId=fid)
     return res
 
@@ -115,15 +115,17 @@ def prom_query(url, query, time):
         return resp.json()['data']['result']
 
 def check_traffic(url, time_at, period='5m'):
-    for metric_name in ['emqx_client_subscribe', 'emqx_messages_publish', 'emqx_client_connected', 'emqx_connections_count']:
+    for metric_name in ['emqx_client_subscribe',
+                        'emqx_messages_publish',
+                        'emqx_client_connected',
+                        'emqx_connections_count']:
         # 1) check: all traffic counters are non-zero for last x mins
         print(f"checking {metric_name}")
         query_str="sum(increase(%s[%s]))" % (metric_name, period)
         # example: [{'metric': {}, 'value': [1644946184, '1578.9473684210525']}]
         res=prom_query(url, query_str, time_at)
-
         print(res)
-        if int(res[0]['value'][0]) == 0:
+        if float(res[0]['value'][1]) == 0:
             error_exit("Error: traffic error: {{metric_name}} is 0")
 
         # 2) check: all emqx nodes get traffic distribution
@@ -132,16 +134,18 @@ def check_traffic(url, time_at, period='5m'):
         for r in res:
             ins=(r['metric']['instance'])
             v=r['value'][1]
-            if v == 0:
+            if float(v) == 0:
                 error_exit(f"Error: {ins}'s {metric_name} is 0")
-
-        print("Metrics check finished and succeeded")
+    print("Metrics check finished and succeeded")
 
 
 def run_test(cluster_name, fault_name):
     wait_for_finish(stop_traffic(cluster_name)['Command'])
     lb='.'.join(["lb", "int", cluster_name])
-    prom_host='prom_host' in os.environ and os.environ['prom_host'] or lb+":9090"
+    if 'prom_host' in os.environ:
+        prom_host=os.environ['prom_host']
+    else:
+        prom_host=lb+":9090"
     prom_url="http://%s/api/v1/query" % prom_host
     traffic_sub_bg={"Host": [lb], "Command":["sub"],"Prefix":["cdkS1"],"Topic":["root/%c/1/+/abc/#"],"Clients":["200000"],"Interval":["200"]}
     traffic_pub={"Host": [lb], "Command":["pub"],"Prefix":["cdkP1"],"Topic":["t1"],"Clients":["200000"],"Interval":["200"], "PubInterval":["1000"]}
@@ -156,7 +160,6 @@ def run_test(cluster_name, fault_name):
     wait_for_finish(inject_fault(cluster_name, fault_name))
     time.sleep(300)
     ts_recover = int(time.time())
-    #ts_recover=1644946184
     check_traffic(prom_url, ts_recover)
     return True;
 
@@ -179,7 +182,7 @@ def random_fault():
 def handler(event, context):
     cluster_name=os.environ['cluster_name']
     if 'fault_name' in os.environ:
-        fault_name=os.environ
+        fault_name=os.environ['fault_name']
     else:
         fault_name=random_fault()
     print('request: {}'.format(json.dumps(event)))
@@ -192,5 +195,3 @@ def handler(event, context):
         'body': event
     }
 
-if __name__ == "__main__":
-    handler({},{})
