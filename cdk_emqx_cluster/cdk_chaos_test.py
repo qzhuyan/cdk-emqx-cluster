@@ -13,7 +13,9 @@ from aws_cdk import (core as cdk, aws_ec2 as ec2, aws_ecs as ecs,
                      aws_iam as iam,
                      aws_ssm as ssm,
                      aws_events as events,
-                     aws_events_targets as targets
+                     aws_events_targets as targets,
+                     aws_stepfunctions as sfn,
+                     aws_stepfunctions_tasks as tasks
                      )
 
 from aws_cdk.core import Duration, CfnParameter
@@ -34,6 +36,7 @@ class CdkChaosTest(cdk.Stack):
                  target_stack: core.Stack(), **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
         self.cluster_name = cluster_name
+        self.chaos_lambdas=dict()
         role = IamRoleFis(self, id='emqx-fis-role')
         self.role_arn = role.role_arn
         self.exps = [
@@ -130,30 +133,137 @@ class CdkChaosTest(cdk.Stack):
                        'stop_traffic.yaml', service='loadgen')
         ]
 
-        # chaos_run=_lambda.Function(
-        #     self, 'chaostest',
-        #     runtime=_lambda.Runtime.PYTHON_3_7,
-        #     code=_lambda.Code.from_asset('lambda'),
-        #     handler='chaos_test.handler',
-        #     environment={'cluster_name' : self.cluster_name},
-        #     vpc=target_stack.vpc,
-        #     timeout=core.Duration.seconds(900)
-        # )
+        self.create_chaos_lambdas(vpc=target_stack.vpc)
 
-        # chaos_run.add_to_role_policy(iam.PolicyStatement(actions=['ssm:List*',
-        #                                                           'ssm:SendCommand',
-        #                                                           'fis:ListExperimentTemplates',
-        #                                                           'fis:Get*',
-        #                                                           'fis:StartExperiment',
-        #                                                           ],
-        #                                                  effect=iam.Effect.ALLOW,
-        #                                                  resources=['*'] # @TODO restrict resources
-        #                                                  ))
+        self.create_tasks()
 
-        # rule = events.Rule(self, "Schedule Rule",
-        #                    schedule=events.Schedule.cron(minute="0", hour="4")
-        #                    )
-        # rule.add_target(targets.LambdaFunction(chaos_run))
+    def task_call_check(self, name, lambda_fun, check_delay_s=3, retry_interval_sec=5, retry_max=100):
+        """
+        Task that call a lambda and then check its result.
+        """
+
+        start = tasks.LambdaInvoke(self, 'task-step-'+name,
+                                   lambda_function=lambda_fun)
+
+        check = tasks.LambdaInvoke(self, f"Check result of {name}",
+                                  lambda_function=self.chaos_lambdas['poll_result']
+                                  )
+        check.add_retry(errors=['Retry'], interval=core.Duration.seconds(retry_interval_sec), max_attempts=retry_max)
+
+        check_delay = sfn.Wait(self, f"Delay before check {name}",
+                               time=sfn.WaitTime.duration(core.Duration.seconds(check_delay_s))
+                               )
+
+        definition=start.next(check_delay) \
+                        .next(check) \
+                        .next(sfn.Succeed(self, name+' Success'))
+        return sfn.StateMachine(self, "task-"+name,
+                                definition=definition,
+                                timeout=Duration.minutes(5)
+                                )
+
+    def create_tasks(self):
+        traffic_sub_bg={"Host": "dummy", "Command":["sub"],"Prefix":["cdkS1"],"Topic":["root/%c/1/+/abc/#"],"Clients":["200000"],"Interval":["200"]}
+        traffic_pub={"Host": "dummy", "Command":["pub"],"Prefix":["cdkP1"],"Topic":["t1"],"Clients":["200000"],"Interval":["200"], "PubInterval":["1000"]}
+        traffic_sub={"Host": "dummy", "Command":["sub"],"Prefix":["cdkS2"],"Topic":["t1"],"Clients":["200"],"Interval":["200"]}
+
+        job_failed = sfn.Fail(self, "Job Failed",
+                              cause="AWS Batch Job Failed",
+                              error="DescribeJob returned FAILED"
+                              )
+        job_success = sfn.Succeed(self, "Test complete and success")
+
+        s_stop_traffic = tasks.StepFunctionsStartExecution(self, 'Call stop_traffic',
+                                                           integration_pattern=sfn.IntegrationPattern.RUN_JOB,
+                                                           state_machine=self.task_call_check('Stop traffic', self.chaos_lambdas['stop_traffic']))
+
+        s_start_traffic_sub = tasks.StepFunctionsStartExecution(self, 'Call start_traffic sub',
+                                                                integration_pattern=sfn.IntegrationPattern.RUN_JOB,
+                                                                state_machine=self.task_call_check('Start traffic sub', self.chaos_lambdas['start_traffic']),
+                                                                input=sfn.TaskInput.from_object({'traffic_args': traffic_sub})
+                                                               )
+
+        s_start_traffic_pub = tasks.StepFunctionsStartExecution(self, 'Call start_traffic pub',
+                                                                integration_pattern=sfn.IntegrationPattern.RUN_JOB,
+                                                                state_machine=self.task_call_check('Start traffic pub', self.chaos_lambdas['start_traffic']),
+                                                                input=sfn.TaskInput.from_object({'traffic_args': traffic_pub})
+                                                               )
+
+        s_start_traffic_sub_bg = tasks.StepFunctionsStartExecution(self, 'Call start_traffic sub_bg',
+                                                                   integration_pattern=sfn.IntegrationPattern.RUN_JOB,
+                                                                   state_machine=self.task_call_check('Start traffic sub_bg', self.chaos_lambdas['start_traffic']),
+                                                                   input=sfn.TaskInput.from_object({'traffic_args': traffic_sub_bg})
+                                                                   )
+
+        s_inject_fault = tasks.StepFunctionsStartExecution(self, 'Call inject_fault',
+                                                           integration_pattern=sfn.IntegrationPattern.RUN_JOB,
+                                                           state_machine=self.task_call_check('Inject Fault', self.chaos_lambdas['inject_fault'], check_delay_s=120),
+                                                           input=sfn.TaskInput.from_object({'fault_name': 'emqx-high-cpu-80'}) # @TODO fault_name
+                                                           )
+
+        s_check_stable_traffic = tasks.LambdaInvoke(self, "Check Stable Traffic",
+                                                    lambda_function=self.chaos_lambdas['check_traffic'],
+                                                    payload=sfn.TaskInput.from_object({'period': '5m'})
+                                                    )
+
+        s_check_recovery_traffic = tasks.LambdaInvoke(self, "Check Recovery Traffic",
+                                                      lambda_function=self.chaos_lambdas['check_traffic'],
+                                                      payload=sfn.TaskInput.from_object({'period': '5m'})
+                                                      )
+
+        wait_stable = sfn.Wait(self, "Wait for traffic stable",
+                               time=sfn.WaitTime.duration(core.Duration.seconds(30))) # @TODO
+
+        wait_recover = sfn.Wait(self, "Wait for recover",
+                               time=sfn.WaitTime.duration(core.Duration.seconds(30))) # @TODO
+
+        definition = s_stop_traffic \
+            .next(s_start_traffic_sub) \
+            .next(s_start_traffic_pub) \
+            .next(s_start_traffic_sub_bg) \
+            .next(wait_stable) \
+            .next(s_check_stable_traffic) \
+            .next(s_inject_fault) \
+            .next(wait_recover) \
+            .next(s_check_recovery_traffic) \
+            .next(job_success)
+
+        sfn.StateMachine(self, "Run one chaos test",
+                         definition=definition,
+                         timeout=Duration.minutes(5)
+                         )
+
+    def create_chaos_lambdas(self, vpc: ec2.Vpc):
+        role=None
+        sgs=[ec2.SecurityGroup(self, 'chaos-lambda-sg', vpc=vpc)]
+        for ln in ['start_traffic',
+                   'stop_traffic',
+                   'poll_result',
+                   'check_traffic',
+                   'inject_fault']:
+            self.chaos_lambdas[ln] = ChaosLambda(self, ln, vpc=vpc, role=role, security_groups=sgs,
+                                                 environment={'cluster_name': core.Stack.of(self).cluster_name}
+                                                 )
+            role = self.chaos_lambdas[ln].role
+
+        role.add_to_policy(iam.PolicyStatement(actions=['ssm:List*',
+                                                        'ssm:SendCommand',
+                                                        'fis:ListExperimentTemplates',
+                                                        'fis:Get*',
+                                                        'fis:StartExperiment',
+                                                        ],
+                                               effect=iam.Effect.ALLOW,
+                                               resources=['*']))
+
+class ChaosLambda(_lambda.Function):
+    def __init__(self, scope: cdk.Construct, name: str, **kwargs) -> None:
+        super().__init__(scope, 'lambda_'+name,
+                         runtime=_lambda.Runtime.PYTHON_3_7,
+                         code=_lambda.Code.from_asset('lambda'),
+                         handler='chaos.handler_'+name,
+                         **kwargs
+                         )
+
 
 class ControlCmd(ssm.CfnDocument):
     def __init__(self, scope: cdk.Construct, construct_id: str, doc_name: str, service: str, **kwargs) -> None:
