@@ -137,16 +137,19 @@ class CdkChaosTest(cdk.Stack):
 
         self.create_tasks()
 
-    def task_call_check(self, name, lambda_fun, check_delay_s=3, retry_interval_sec=5, retry_max=100):
+    def task_call_check(self, name, lambda_fun, parameters=None, check_delay_s=3, retry_interval_sec=5, retry_max=100):
         """
         Task that call a lambda and then check its result.
         """
 
+        init = sfn.Pass(self, f"set param for {name}", parameters=parameters)
         start = tasks.LambdaInvoke(self, 'task-step-'+name,
+                                   result_path='$.last_result',
                                    lambda_function=lambda_fun)
 
         check = tasks.LambdaInvoke(self, f"Check result of {name}",
-                                  lambda_function=self.chaos_lambdas['poll_result']
+                                   input_path='$.last_result',
+                                   lambda_function=self.chaos_lambdas['poll_result']
                                   )
         check.add_retry(errors=['Retry'], interval=core.Duration.seconds(retry_interval_sec), max_attempts=retry_max)
 
@@ -154,9 +157,10 @@ class CdkChaosTest(cdk.Stack):
                                time=sfn.WaitTime.duration(core.Duration.seconds(check_delay_s))
                                )
 
-        definition=start.next(check_delay) \
-                        .next(check) \
-                        .next(sfn.Succeed(self, name+' Success'))
+        definition=init.next(start)\
+                       .next(check_delay) \
+                       .next(check) \
+                       .next(sfn.Succeed(self, name+' Success'))
         return sfn.StateMachine(self, "task-"+name,
                                 definition=definition,
                                 timeout=Duration.minutes(5)
@@ -173,42 +177,48 @@ class CdkChaosTest(cdk.Stack):
                               )
         job_success = sfn.Succeed(self, "Test complete and success")
 
+
         s_stop_traffic = tasks.StepFunctionsStartExecution(self, 'Call stop_traffic',
                                                            integration_pattern=sfn.IntegrationPattern.RUN_JOB,
+                                                           result_path=sfn.JsonPath.DISCARD,
                                                            state_machine=self.task_call_check('Stop traffic', self.chaos_lambdas['stop_traffic']))
 
         s_start_traffic_sub = tasks.StepFunctionsStartExecution(self, 'Call start_traffic sub',
                                                                 integration_pattern=sfn.IntegrationPattern.RUN_JOB,
-                                                                state_machine=self.task_call_check('Start traffic sub', self.chaos_lambdas['start_traffic']),
-                                                                input=sfn.TaskInput.from_object({'traffic_args': traffic_sub})
+                                                                result_path=sfn.JsonPath.DISCARD,
+                                                                state_machine=self.task_call_check('Start traffic sub', self.chaos_lambdas['start_traffic'],
+                                                                                                   parameters={'traffic_args': traffic_sub})
                                                                )
 
         s_start_traffic_pub = tasks.StepFunctionsStartExecution(self, 'Call start_traffic pub',
                                                                 integration_pattern=sfn.IntegrationPattern.RUN_JOB,
-                                                                state_machine=self.task_call_check('Start traffic pub', self.chaos_lambdas['start_traffic']),
-                                                                input=sfn.TaskInput.from_object({'traffic_args': traffic_pub})
+                                                                result_path=sfn.JsonPath.DISCARD,
+                                                                state_machine=self.task_call_check('Start traffic pub', self.chaos_lambdas['start_traffic'],
+                                                                                                   parameters={'traffic_args': traffic_pub})
                                                                )
 
         s_start_traffic_sub_bg = tasks.StepFunctionsStartExecution(self, 'Call start_traffic sub_bg',
                                                                    integration_pattern=sfn.IntegrationPattern.RUN_JOB,
-                                                                   state_machine=self.task_call_check('Start traffic sub_bg', self.chaos_lambdas['start_traffic']),
-                                                                   input=sfn.TaskInput.from_object({'traffic_args': traffic_sub_bg})
+                                                                   result_path=sfn.JsonPath.DISCARD,
+                                                                   state_machine=self.task_call_check('Start traffic sub_bg', self.chaos_lambdas['start_traffic'],
+                                                                                                      parameters={'traffic_args': traffic_sub_bg})
                                                                    )
 
         s_inject_fault = tasks.StepFunctionsStartExecution(self, 'Call inject_fault',
                                                            integration_pattern=sfn.IntegrationPattern.RUN_JOB,
                                                            state_machine=self.task_call_check('Inject Fault', self.chaos_lambdas['inject_fault'], check_delay_s=120),
-                                                           input=sfn.TaskInput.from_object({'fault_name': 'emqx-high-cpu-80'}) # @TODO fault_name
                                                            )
 
         s_check_stable_traffic = tasks.LambdaInvoke(self, "Check Stable Traffic",
                                                     lambda_function=self.chaos_lambdas['check_traffic'],
-                                                    payload=sfn.TaskInput.from_object({'period': '5m'})
+                                                    payload=sfn.TaskInput.from_object({'period': '5m'}),
+                                                    result_path=sfn.JsonPath.DISCARD
                                                     )
 
         s_check_recovery_traffic = tasks.LambdaInvoke(self, "Check Recovery Traffic",
                                                       lambda_function=self.chaos_lambdas['check_traffic'],
-                                                      payload=sfn.TaskInput.from_object({'period': '5m'})
+                                                      payload=sfn.TaskInput.from_object({'period': '5m'}),
+                                                      result_path=sfn.JsonPath.DISCARD
                                                       )
 
         wait_stable = sfn.Wait(self, "Wait for traffic stable",
@@ -229,6 +239,7 @@ class CdkChaosTest(cdk.Stack):
             .next(job_success)
 
         sfn.StateMachine(self, "Run one chaos test",
+                         state_machine_name=f"{self.cluster_name}-chaostest",
                          definition=definition,
                          timeout=Duration.minutes(5)
                          )
@@ -244,7 +255,7 @@ class CdkChaosTest(cdk.Stack):
             self.chaos_lambdas[ln] = ChaosLambda(self, ln, vpc=vpc, role=role, security_groups=sgs,
                                                  environment={'cluster_name': core.Stack.of(self).cluster_name}
                                                  )
-            role = self.chaos_lambdas[ln].role
+            role=self.chaos_lambdas[ln].role
 
         role.add_to_policy(iam.PolicyStatement(actions=['ssm:List*',
                                                         'ssm:SendCommand',
@@ -437,3 +448,4 @@ class IamRoleFis(iam.Role):
         policy_ec2 = iam.PolicyDocument.from_json(
             json.loads(ec2PolicyJson))
         return [policy_ec2, policy_ssm]
+

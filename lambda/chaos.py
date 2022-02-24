@@ -46,7 +46,7 @@ Run system manager command
 def random_fault() -> str:
     return random.choice(FAULTS)
 
-def run_cmd_on(cluster_name : str, command_name : str, services : list(str),
+def run_cmd_on(cluster_name : str, command_name : str, services : list,
                cmd_parms : dict() = {}):
     doc_name='-'.join([cluster_name, command_name])
     print(f"run {command_name} ...")
@@ -305,14 +305,14 @@ def handler_inject_fault(event, context):
 #############
 def wait_for_finish(run):
     try:
-        poll_result(run)
+        handler_poll_result({'Payload':run}, {})
     except Retry as e:
         time.sleep(5)
         wait_for_finish(run)
 
 
 def run_test():
-    wait_for_finish(handler_stop_traffic(None, None))
+    wait_for_finish(handler_stop_traffic({}, {}))
 
     traffic_sub_bg={"Host": "dummy", "Command":["sub"],"Prefix":["cdkS1"],"Topic":["root/%c/1/+/abc/#"],"Clients":["200000"],"Interval":["200"]}
     traffic_pub={"Host": "dummy", "Command":["pub"],"Prefix":["cdkP1"],"Topic":["t1"],"Clients":["200000"],"Interval":["200"], "PubInterval":["1000"]}

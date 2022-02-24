@@ -35,7 +35,6 @@ setuptools.setup(
         "aws-cdk.aws-msk==1.134.0",
         "aws-cdk.aws-stepfunctions==1.134.0",
         "aws-cdk.aws-stepfunctions-tasks==1.134.0",
-        "prometheus-api-client",
         "pyyaml"
     ],
 
