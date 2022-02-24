@@ -9,10 +9,6 @@ import time
 import json
 import random
 
-def error_exit(info:str):
-    print(info)
-    sys.exit(1)
-
 ssm = boto3.client('ssm')
 fis = boto3.client('fis')
 
@@ -42,9 +38,6 @@ class Fail(Exception):
 '''
 Run system manager command
 '''
-
-def random_fault() -> str:
-    return random.choice(FAULTS)
 
 def run_cmd_on(cluster_name : str, command_name : str, services : list,
                cmd_parms : dict() = {}):
@@ -86,42 +79,6 @@ def find_exp_id(cluster_name : str, fault_name : str, next_token=None) -> str:
         find_exp_id(cluster_name, fault_name, next_token=res['nextToken'])
     else:
         return ''
-
-def wait_for_finish(run : dict()) -> None:
-    """
-    Wait for async aws api call to finish successfully.
-
-    raise Retry() if the call isn't finished, caller (for example aws lambda)
-          could retry if needed.
-    raise Fail() if the call is failed.
-    """
-    if 'Command' in run:
-        cmd=run['Command']
-        cmd_id=cmd['CommandId']
-        time.sleep(1)
-        res=ssm.list_command_invocations(CommandId=cmd_id, Details=True)
-        if res['CommandInvocations'] == []:
-            # ensures we have >1 target invocations.
-            raise Fail
-        for invk in res['CommandInvocations']:
-            status = invk['Status']
-            if status == 'Success':
-                # check next invocation
-                pass
-            elif status in ['Pending', 'InProgress', 'Delayed']:
-                raise Retry(status)
-            else:
-                raise Fail(f"command invoke failed: {invk}")
-    elif 'experiment' in run:
-        exp=run['experiment']
-        exp_id=exp['id']
-        res=fis.get_experiment(id=exp_id)
-        status=res['experiment']['state']['status']
-        if status == ['failed']:
-            raise Fail(f"fis experiment { exp_id } failed")
-    else:
-        raise Fail('wait_for_finish: unsupported inputs')
-    return True
 
 def prom_query(url:str, query:str, time: time.time):
     # https://prometheus.io/docs/prometheus/latest/querying/api/
@@ -227,6 +184,9 @@ def dict_event(evt):
 ##  event and context are dict()
 ##  output must be json
 ###################################
+def random_fault() -> str:
+    return random.choice(FAULTS)
+
 def handler_start_traffic(event, context):
     """
     Event Input:
@@ -297,12 +257,9 @@ def handler_inject_fault(event, context):
     return to_json(inject_fault(cluster_name, fault_name))
 
 
-#############
-# Following for local test
-# required envvars:
-#    cluster_name=william-k2
-#    prom_host=localhost:9090
-#############
+#######################
+# For local tests
+#######################
 def wait_for_finish(run):
     try:
         handler_poll_result({'Payload':run}, {})
