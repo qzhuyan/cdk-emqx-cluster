@@ -872,7 +872,6 @@ class CdkEmqxClusterStack(cdk.Stack):
 
     def read_param(self):
         # CHAOS_READY, if true, cluster is chaos ready and able to accept chaos tests.
-        self.is_chaos_ready = self.node.try_get_context('chaos') or 'False'
         self.is_chaos_ready = strtobool(self.is_chaos_ready)
 
         # EMQX Instance Type
