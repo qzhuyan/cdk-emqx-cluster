@@ -24,9 +24,10 @@ apt install -y make wget gnupg2 git build-essential curl cmake debhelper tmux li
 #apt update
 #apt install -y esl-erlang=1:25.3-1
 #
-curl -fsSL https://packages.erlang-solutions.com/ubuntu/erlang_solutions.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/erlang.gpg
-apt update
-apt install erlang
+
+otp_prebuilds=otp-26.2.5.3-ubuntu-22.04.tar.gz
+wget https://github.com/qzhuyan/kerl/releases/download/testing/${otp_prebuilds}
+tar zxvf ${otp_prebuilds} -C /
 
 ## Install node exporter
 case $(uname -m) in

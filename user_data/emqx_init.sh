@@ -9,8 +9,8 @@ net.ipv4.tcp_rmem=1024 4096 16777216
 net.ipv4.tcp_wmem=1024 4096 16777216
 net.ipv4.tcp_max_tw_buckets=1048576
 net.ipv4.tcp_fin_timeout=15
-net.core.rmem_default=262144000
-net.core.wmem_default=262144000
+net.core.rmem_default=212992
+net.core.wmem_default=212992
 net.core.rmem_max=262144000
 net.core.wmem_max=262144000
 net.ipv4.tcp_mem=378150000  504200000  756300000
@@ -51,6 +51,7 @@ maybe_mount_data() {
   mkfs.ext4 -L emqx_data /dev/nvme1n1
   mkdir -p /var/lib/emqx/
   mount -L  emqx_data /var/lib/emqx/
+  echo "LABEL=emqx_data /var/lib/emqx ext4 rw,norelatime 0 1" >> /etc/fstab
   fi
 }
 
@@ -216,6 +217,10 @@ node {
 
 api_key {
   bootstrap_file = "/etc/emqx/api_keys.conf"
+}
+
+mqtt {
+  max_packet_size = "256mb"
 }
 
 EOF

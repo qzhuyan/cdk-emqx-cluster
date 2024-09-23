@@ -114,7 +114,7 @@ emqx_pulsar_enable
 
 # Enable Postgres
 # Whether to deploy Postgres.
-# default: True
+# default: False
 emqx_postgres_enable
 
 ```

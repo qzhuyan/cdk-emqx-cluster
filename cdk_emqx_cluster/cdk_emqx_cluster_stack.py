@@ -208,7 +208,7 @@ class CdkEmqxClusterStack(cdk.Stack):
         vpc = self.vpc
         zone = self.int_zone
         sg = self.sg
-        key = self.ssh_key
+        key = self.ssh_key_pair
         target = self.nlb.load_balancer_dns_name
 
         # we let CDK create the first role for this service in the
@@ -287,7 +287,7 @@ class CdkEmqxClusterStack(cdk.Stack):
                                  machine_image=ami,
                                  user_data=multipartUserData,
                                  security_group=sg,
-                                 key_name=key,
+                                 key_pair=key,
                                  role=vm_role,
                                  vpc=vpc,
                                  source_dest_check=False
@@ -324,7 +324,7 @@ class CdkEmqxClusterStack(cdk.Stack):
         vpc = self.vpc
         zone = self.int_zone
         sg = self.sg
-        key = self.ssh_key
+        key = self.ssh_key_pair
 
         # we let CDK create the first role for this service in the
         # first instance and them use it in subsequent instances
@@ -371,7 +371,7 @@ class CdkEmqxClusterStack(cdk.Stack):
                                   machine_image=ami,
                                   user_data=multipartUserData,
                                   security_group=sg,
-                                  key_name=key,
+                                  key_pair=key,
                                   role=vm_role,
                                   vpc=vpc,
                                   source_dest_check=False)
@@ -627,7 +627,7 @@ class CdkEmqxClusterStack(cdk.Stack):
         vpc = self.vpc
         zone = self.int_zone
         sg = self.sg
-        key = self.ssh_key
+        key = self.ssh_key_pair
         nlb = self.nlb
         self.emqx_vms = []
         self.emqx_core_nodes = []
@@ -710,7 +710,7 @@ class CdkEmqxClusterStack(cdk.Stack):
                               machine_image=ami,
                               user_data=multipartUserData,
                               security_group=sg,
-                              key_name=key,
+                              key_pair=key,
                               role=vm_role,
                               vpc=vpc,
                               vpc_subnets=ec2.SubnetSelection(
@@ -794,7 +794,7 @@ class CdkEmqxClusterStack(cdk.Stack):
             vpc = self.vpc
             zone = self.int_zone
             sg = self.sg
-            key = self.ssh_key
+            key = self.ssh_key_pair
             # cdk bug?
             (cloud_user_data, ) = ec2.UserData.for_linux(),
             # @TODO: fix domain name as following
@@ -818,7 +818,7 @@ class CdkEmqxClusterStack(cdk.Stack):
                                machine_image=ubuntu_arm_ami,
                                user_data=cloud_user_data,
                                security_group=sg,
-                               key_name=key,
+                               key_pair=key,
                                role=vm_role,
                                vpc=vpc
                                )
@@ -874,6 +874,7 @@ class CdkEmqxClusterStack(cdk.Stack):
         self.ssh_key = CfnParameter(self, "sshkey",
                                     type="String", default="key_ireland",
                                     description="Specify your SSH key").value_as_string
+        self.ssh_key_pair = ec2.KeyPair.from_key_pair_attributes(self, id = 'sshkeypair', key_pair_name=self.ssh_key)
 
     def setup_sg(self):
         """
