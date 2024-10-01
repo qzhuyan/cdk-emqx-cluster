@@ -44,3 +44,12 @@ scrape_configs:
   - job_name: "quicrun metrics"
     static_configs:
       - targets: [${QUICRUN_NODES}]
+
+  - job_name: 'emqx'
+    static_configs:
+      - targets: [${EMQX_STATS}]
+    metrics_path: '/api/v5/prometheus/stats'
+    scheme: 'http'
+    basic_auth:
+      username: ''
+      password: ''

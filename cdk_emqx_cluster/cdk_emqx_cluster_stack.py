@@ -403,6 +403,7 @@ class CdkEmqxClusterStack(cdk.Stack):
             prometheus_config_tmpl = string.Template(f.read())
             prometheus_config = prometheus_config_tmpl.safe_substitute(
                 EMQX_NODES = ','.join([f'"{t}:9100"' for t in targets]),
+                EMQX_STATS = ','.join([f'"{t}:18083"' for t in targets]),
                 EMQTTB_NODES = ','.join([f'"{t}:8017"' for t in self.loadgens]),
                 QUICRUN_NODES = ','.join([f'"{t}:9095"' for t in targets]),
             )
@@ -571,7 +572,7 @@ class CdkEmqxClusterStack(cdk.Stack):
         c_grafana = task.add_container('grafana',
                                        essential=True,
                                        image=ecs.ContainerImage.from_registry(
-                                           'ghcr.io/iequ1/sysmon-grafana:1.5.0'),
+                                           'grafana/grafana-oss'),
                                        environment={
                                            'POSTGRES_PASS': self.postgresPass,
                                            'GF_AUTH_ANONYMOUS_ENABLED': "true"
