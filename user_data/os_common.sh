@@ -16,7 +16,8 @@ sysctl -p
 
 ## Install OTP
 apt update
-apt install -y make wget gnupg2 git build-essential curl cmake debhelper tmux libodbc1 awscli net-tools linux-tools-common linux-tools-aws
+apt install -y make wget gnupg2 git build-essential curl cmake debhelper tmux libodbc1 awscli net-tools linux-tools-common linux-tools-aws \
+    unzip libkrb5-dev libsasl2-dev
 
 #snap install cmake --classic
 #wget -O - https://packages.erlang-solutions.com/ubuntu/erlang_solutions.asc | sudo apt-key add -
@@ -28,6 +29,8 @@ apt install -y make wget gnupg2 git build-essential curl cmake debhelper tmux li
 otp_prebuilds=otp-26.2.5.3-ubuntu-22.04.tar.gz
 wget https://github.com/qzhuyan/kerl/releases/download/testing/${otp_prebuilds}
 tar zxvf ${otp_prebuilds} -C /
+ln -s /home/runner/OTP/otp-26.2.5.3/ /home/runner/OTP/default
+echo ". /home/runner/OTP/default/activate" >> ~/.bashrc
 
 ## Install node exporter
 case $(uname -m) in
