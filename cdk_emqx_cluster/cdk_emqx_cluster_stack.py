@@ -481,9 +481,9 @@ class CdkEmqxClusterStack(cdk.Stack):
                                           'bash'),
                                       essential=False,
                                       # uncomment for troubleshooting
-                                      # logging=ecs.LogDriver.aws_logs(stream_prefix="mon_config_prometheus",
-                                      #                               log_retention=aws_logs.RetentionDays.ONE_DAY
-                                      #                               ),
+                                      logging=ecs.LogDriver.aws_logs(stream_prefix="mon_config_prometheus",
+                                                                    log_retention=aws_logs.RetentionDays.ONE_DAY
+                                                                    ),
                                       command=["-c",
                                                "echo $DATA | base64 -d - | tee /tmp/private/prometheus.yml"
                                                ],
@@ -509,10 +509,9 @@ class CdkEmqxClusterStack(cdk.Stack):
                                               "--web.enable-admin-api"
                                           ],
                                           # uncomment for troubleshooting
-                                          # logging=ecs.LogDriver.aws_logs(stream_prefix="mon_prometheus",
-                                          #                               log_retention=aws_logs.RetentionDays.ONE_DAY
-                                          #                               ),
-
+                                          logging=ecs.LogDriver.aws_logs(stream_prefix="mon_prometheus",
+                                                                        log_retention=aws_logs.RetentionDays.ONE_DAY
+                                                                        ),
                                           )
         c_prometheus.add_mount_points(ecs.MountPoint(
             read_only=False, container_path='/etc/prometheus/private', source_volume='prom_config'))

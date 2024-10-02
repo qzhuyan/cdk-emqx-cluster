@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+cluster=$(hostname -f | cut -d . -f 3)
+aws s3 cp --recursive "s3://emqx-cdk-cluster/${cluster}/bin" /usr/local/bin/
+
 cat >> /etc/sysctl.d/99-sysctl.conf <<EOF
 net.core.rmem_default=212992
 net.core.wmem_default=212992
@@ -24,5 +27,3 @@ cp /root/emqtt-bench/rebar3 ./
 env BUILD_WITHOUT_QUIC=1 ./rebar3 escriptize
 popd
 
-cluster=$(hostname -f | cut -d . -f 3)
-aws s3 cp --recursive "s3://emqx-cdk-cluster/${cluster}/bin" /usr/local/bin/

@@ -1,0 +1,30 @@
+## keep it in sync with what we have in CDK stack
+services:
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - "--storage.tsdb.path=/prometheus/tsdb_data"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+      - "--storage.tsdb.retention.time=1y"
+      - "--web.enable-admin-api"
+
+    ports:
+      - 9090:9090
+    restart: unless-stopped
+    volumes:
+      #- ./prometheus:/etc/prometheus
+      - ./mnt/efs-data/tsdb_data:/prometheus/tsdb_data
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
+    ports:
+      - 3000:3000
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./grafana:/etc/grafana/provisioning/datasources

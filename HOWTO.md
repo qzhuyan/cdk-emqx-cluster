@@ -237,9 +237,13 @@ ssh etcd0
 
 # Provision Grafana Dashboards
 
+1. After ssh to the bastion, run 
 ```
-# Monitoring
+bin/grafana_setup.sh
+```
 
+# Monitoring
+```
 Open web browser and access the grafana via localhost:13000
 
 username: admin
@@ -260,6 +264,13 @@ cd /root/emqtt-bench
 
 ./emqtt_bench conn -h lb.int.william
 
+```
+
+## Loadgen examples
+
+### reconnect tests
+```
+a=0; until timeout 50 bin/emqtt_bench pub -h emqx-0.int.william -t a -S -p 8883 ./quic_conn.eterm  -c 12500 -R 100 -k 0 --prefix BB ; do echo $a; let a=$a+1; done;
 ```
 
 # Destroy cluster
@@ -430,3 +441,6 @@ Change `$YOUR_CDK_CLUSTER_NAME` to the appropriate value.
         --desired-count 1
   )
 ```
+
+
+

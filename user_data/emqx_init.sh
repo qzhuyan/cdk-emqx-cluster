@@ -223,6 +223,8 @@ mqtt {
   max_packet_size = "256mb"
 }
 
+prometheus.vm_statistics_collector=enabled
+prometheus.vm_system_info_collector=enabled
 EOF
 }
 
