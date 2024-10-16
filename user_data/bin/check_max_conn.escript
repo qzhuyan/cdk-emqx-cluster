@@ -34,7 +34,7 @@ main(["-c", Host, Port0, Parallel, AddrsStr]) ->
 
     NumberOfClients = list_to_integer(Parallel),
     Port = list_to_integer(Port0),
-    ok = persistent_term:put(counter, counters:new(3, [write_concurrency])),
+    ok = persistent_term:put(counter, counters:new(10, [write_concurrency])),
     lists:foreach(
       fun(X) ->
               spawn_link(fun() -> run_client(Host, Port, X, LocalAddrs) end)
