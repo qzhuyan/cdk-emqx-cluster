@@ -9,7 +9,7 @@ net.core.rmem_default=212992
 net.core.wmem_default=212992
 net.core.rmem_max=262144000
 net.core.wmem_max=262144000
-net.ipv4.tcp_mem=378150000  504200000  756300000
+net.ipv4.tcp_mem=378150000  504200  756300000
 EOF
 
 sysctl -p

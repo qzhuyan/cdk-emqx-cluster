@@ -47,6 +47,7 @@ case $op in
         pushd "$env_dir"
         tar zxvf "$efs_tar" -C ./
         chmod -R 777 mnt
+        rm -f mnt/efs-data/tsdb_data/lock
         docker-compose up -d
         popd
         until $absdir/grafana_setup.sh localhost:3000;

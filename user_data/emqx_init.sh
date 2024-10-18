@@ -210,7 +210,7 @@ sysmon.top {
 
 node {
   # must be at most half the maximum number of processes...
-  max_ports = 67108863
+  # max_ports = 67108863
   # this is currently ignored...
   # process_limit = 134217727
 }
