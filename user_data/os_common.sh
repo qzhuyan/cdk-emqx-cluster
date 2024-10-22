@@ -27,7 +27,7 @@ apt install -y make wget gnupg2 git build-essential curl cmake debhelper tmux li
 #
 
 otp_prebuilds=otp-26.2.5.3-ubuntu-22.04.tar.gz
-wget https://github.com/qzhuyan/kerl/releases/download/testing/${otp_prebuilds}
+wget https://github.com/qzhuyan/kerl/releases/download/test2/${otp_prebuilds}
 tar zxvf ${otp_prebuilds} -C /
 ln -s /home/runner/OTP/otp-26.2.5.3/ /home/runner/OTP/default
 echo ". /home/runner/OTP/default/activate" >> ~/.bashrc
