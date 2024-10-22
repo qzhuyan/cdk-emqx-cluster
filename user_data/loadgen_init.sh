@@ -18,7 +18,7 @@ cd /root/
 
 $EMQTT_BENCH_SRC_CMD
 pushd emqtt-bench
-HOME=/root DIAGNOSTIC=1 make
+HOME=/root make
 popd
 
 $EMQTTB_SRC_CMD
