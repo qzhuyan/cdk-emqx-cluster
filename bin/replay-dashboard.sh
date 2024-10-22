@@ -45,7 +45,8 @@ case $op in
         helpdir=$absdir/_files/dashboard-replay
         cp -rf ${helpdir}/* "$env_dir"
         pushd "$env_dir"
-        tar zxvf "$efs_tar" -C ./
+        mkdir -p mnt/efs-data/tsdb_data
+        tar zxvf "$efs_tar" -C mnt/efs-data/tsdb_data --strip-components=1 ./
         chmod -R 777 mnt
         rm -f mnt/efs-data/tsdb_data/lock
         docker-compose up -d
