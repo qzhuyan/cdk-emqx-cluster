@@ -1,0 +1,27 @@
+---
+- name: patch emqx
+  hosts: emqx
+  tasks:
+    - name: copy patch to emqx
+      become: true
+      become_user: root
+      copy:
+        src: "{{ item }}"
+        dest: /var/lib/emqx/patches/
+      with_fileglob:
+        - patches/*.beam
+
+    - name: copy quicer
+      become: true
+      become_user: root
+      copy:
+        src: "{{ item }}"
+        dest: /usr/lib/emqx/lib/quicer-*/priv/
+      with_fileglob:
+        - patches/*.so
+
+    - name: eval load command
+      become: true
+      become_user: root
+      shell: |
+        emqx eval 'c:lm()'

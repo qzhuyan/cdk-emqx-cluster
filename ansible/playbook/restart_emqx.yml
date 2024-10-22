@@ -1,0 +1,9 @@
+---
+- name: Stop service on remote host via bastion
+  hosts: emqx
+  become: yes
+  tasks:
+    - name: restart emqx
+      service:
+        name: emqx
+        state: restarted

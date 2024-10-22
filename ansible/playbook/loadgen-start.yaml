@@ -1,0 +1,25 @@
+---
+- name: run loadgen
+  hosts: loadgen
+  tasks:
+    - name: render traffic file for quic multi
+      become: true
+      become_user: root
+      template:
+        src:
+          traffic_file/quic_multi.json
+        dest:
+          /root/emqtt-bench/topic_spec.json
+
+    - name: run the test
+      become: true
+      become_user: root
+      shell: |
+        cd /root/emqtt-bench/;
+        [ ! -f /root/emqtt-bench/emqtt_bench ] && make;
+        . /home/runner/OTP/default/activate
+        set +e
+        source with-ipaddrs.sh || echo "ok"
+        ./emqtt_bench pub -h lb.int.william --topics-payload ./topic_spec.json -p 14567 --quic true -k 0 -c 12500 -x 30 --ifaddr $ipaddrs;
+      args:
+        executable: /bin/bash
