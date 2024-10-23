@@ -16,7 +16,7 @@
       become_user: root
       copy:
         src: "{{ item }}"
-        dest: /usr/lib/emqx/lib/quicer-*/priv/
+        dest: /usr/lib/emqx/lib/quicer-0.1.0/priv/
       with_fileglob:
         - patches/*.so
 

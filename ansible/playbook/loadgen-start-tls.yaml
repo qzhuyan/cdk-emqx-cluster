@@ -15,11 +15,11 @@
       become: true
       become_user: root
       shell: |
+        . /home/runner/OTP/default/activate
         cd /root/emqtt-bench/;
         [ ! -f /root/emqtt-bench/emqtt_bench ] && make;
-        . /home/runner/OTP/default/activate
-        set +e
+        which erl
         source with-ipaddrs.sh || echo "ok"
-        ./emqtt_bench pub -h lb.int.william --topics-payload ./topic_spec.json -S -p 8883 -k 0 -c 5000 -x 30 --ifaddr $ipaddrs;
+        ./emqtt_bench pub -h lb.int.william --topics-payload ./topic_spec.json -S -p 8883 -k 0 -c 5000 -x 30
       args:
         executable: /bin/bash
