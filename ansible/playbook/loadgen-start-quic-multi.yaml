@@ -16,8 +16,8 @@
       become_user: root
       shell: |
         cd /root/emqtt-bench/;
-        [ ! -f /root/emqtt-bench/emqtt_bench ] && make;
         . /home/runner/OTP/default/activate
+        [ ! -f /root/emqtt-bench/emqtt_bench ] && make;
         set +e
         source with-ipaddrs.sh || echo "ok"
         ./emqtt_bench pub -h lb.int.william --topics-payload ./topic_spec.json -p 14567 --quic true -k 0 -c 6000 -x 30 --ifaddr $ipaddrs;

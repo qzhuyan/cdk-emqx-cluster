@@ -290,7 +290,13 @@ class CdkEmqxClusterStack(cdk.Stack):
                                  key_pair=key,
                                  role=vm_role,
                                  vpc=vpc,
-                                 source_dest_check=False
+                                 source_dest_check=False,
+                                 block_devices=[
+                                    ec2.BlockDevice(
+                                        device_name="/dev/sda1",
+                                        volume=ec2.BlockDeviceVolume.ebs(16)
+                                    )
+                                 ]
                                  )
             vm_role = lg_vm.role
             self.attach_ssm_policy(vm_role)

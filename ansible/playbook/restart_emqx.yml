@@ -3,6 +3,18 @@
   hosts: emqx
   become: yes
   tasks:
+    - name: stop nginx
+      service:
+        name: nginx
+        state: stopped
+
+    - name: tune udp
+      sysctl:
+        name: "net.ipv4.udp_mem"
+        value: "745800 49944000   749166000"
+        state: present
+
+
     - name: restart emqx
       service:
         name: emqx

@@ -200,13 +200,13 @@ limiter.message_in.rate = infinity
 limiter.message_routing.rate = infinity
 limiter.bytes_in.rate = infinity
 
-sysmon.top {
-  db_hostname = "lb.${domain}"
-  db_username = "system_monitor"
-  db_password = "${EMQX_CDK_POSTGRES_PASS}"
-  max_procs = 3000000
-  sample_interval = 5s
-}
+#sysmon.top {
+#  db_hostname = "lb.${domain}"
+#  db_username = "system_monitor"
+#  db_password = "${EMQX_CDK_POSTGRES_PASS}"
+#  max_procs = 3000000
+#  sample_interval = 5s
+#}
 
 node {
   # must be at most half the maximum number of processes...
@@ -291,4 +291,7 @@ esac
 
 maybe_install_license
 install_helpers
+
+# only start nginx when needed
+systemctl stop nginx.service
 systemctl start emqx
