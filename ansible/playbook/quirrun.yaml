@@ -1,0 +1,68 @@
+---
+- name: quicrun
+  hosts: all
+  tasks:
+    - name: stop emqx
+      become: true
+      become_user: root
+      when:  "'emqx' in group_names"
+      ansible.builtin.service:
+        state: stopped
+        name: emqx
+
+    - name: stop nginx
+      become: true
+      become_user: root
+      when:  "'emqx' in group_names"
+      ansible.builtin.service:
+        state: stopped
+        name: nginx
+
+    - name: install rebar3
+      become: true
+      become_user: root
+      shell: |
+        . /home/runner/OTP/default/activate
+        wget https://s3.amazonaws.com/rebar3/rebar3
+        chmod a+x rebar3
+        mv rebar3 /usr/bin/
+
+    # - name: clone
+    #   ansible.builtin.git:
+    #     repo: git@github.com:qzhuyan/quicrun.git
+    #     dest: /home/ubuntu/quicrun
+    #     single_branch: yes
+    #     depth: 1
+    #     version: dev
+    #     ssh_opts: "-o StrictHostKeyChecking=no"
+
+    - name: compile quicrun
+      become: true
+      become_user: root
+      shell: |
+        . /home/runner/OTP/default/activate
+        cd /root/quicrun && make
+
+    - name: start server
+      become: true
+      become_user: root
+      when:  "'emqx' in group_names"
+      async: 360000
+      poll: 0  # Don’t wait for the command to finish, run asynchronously
+      shell: |
+        . /home/runner/OTP/default/activate
+        cd /root/quicrun
+        ulimit -n 200000
+        /root/quicrun/quicrun -S 0.0.0.0:14567 -s perf --server-config cfg/perf_server.eterm
+
+    - name: Start clients
+      become: true
+      become_user: root
+      when:  "'loadgen' in group_names"
+      async: 360000
+      poll: 0  # Don’t wait for the command to finish, run asynchronously
+      shell: |
+        . /home/runner/OTP/default/activate
+        cd /root/quicrun
+        ulimit -n 200000
+        /root/quicrun/quicrun -C 1000000000000 -p 14567 -h emqx-0.int.william -R 500 -s perf --client-config cfg/perf_client_CPS.eterm --prom 8017
