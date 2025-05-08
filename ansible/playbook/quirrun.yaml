@@ -53,7 +53,9 @@
         . /home/runner/OTP/default/activate
         cd /root/quicrun
         ulimit -n 200000
-        /root/quicrun/quicrun -S 0.0.0.0:14567 -s perf --server-config cfg/perf_server.eterm
+        pkill beam.smp
+        epmd -daemon
+        /root/quicrun/quicrun -S 0.0.0.0:14567 -s perf --server-config cfg/perf_server.eterm -d quicrun
 
     - name: Start clients
       become: true
@@ -65,4 +67,6 @@
         . /home/runner/OTP/default/activate
         cd /root/quicrun
         ulimit -n 200000
-        /root/quicrun/quicrun -C 1000000000000 -p 14567 -h emqx-0.int.william -R 500 -s perf --client-config cfg/perf_client_CPS.eterm --prom 8017
+        epmd -daemon
+        pkill beam.smp
+        /root/quicrun/quicrun -C 1000000000000 -p 14567 -h emqx-0.int.william -R 500 -s perf --client-config cfg/perf_client_CPS.eterm --prom 8017 -d quicrun

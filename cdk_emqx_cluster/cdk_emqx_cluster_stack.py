@@ -789,7 +789,7 @@ class CdkEmqxClusterStack(cdk.Stack):
         # if there's no EMQ X nodes (for example, starting up cluster
         # just to analyze past data from Prometheus/Postgres), we
         # don't neet to spin up etcd
-        if self.numEmqx == 0:
+        if self.numEmqx < 2:
             return
 
         # we let CDK create the first role for this service in the

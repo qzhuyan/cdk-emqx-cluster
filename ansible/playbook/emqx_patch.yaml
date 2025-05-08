@@ -16,9 +16,10 @@
       become_user: root
       copy:
         src: "{{ item }}"
+        # @FIXME!
         dest: /usr/lib/emqx/lib/quicer-0.1.0/priv/
       with_fileglob:
-        - patches/*.so
+        - patches/libquicer_nif.so.0.1.6-15-g34627a4
 
     - name: eval load command
       become: true

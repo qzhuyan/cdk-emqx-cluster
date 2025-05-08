@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-target=${1:-"localhost:13000"}
+target=${1:-"localhost:14000"}
 login="admin:admin"
 
 echo "Setup Data Source..."
