@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-target=${1:-"localhost:14000"}
+target=${1:-"localhost:13000"}
 login="admin:admin"
 
 echo "Setup Data Source..."
@@ -14,6 +14,20 @@ curl -X POST ${login}@${target}/api/datasources \
   "name":"Prometheus",
   "type":"prometheus",
   "url":"http://localhost:9090",
+  "access":"proxy",
+  "basicAuth":false
+}
+EOF
+
+curl -X POST ${login}@${target}/api/datasources \
+    -H "Accept: application/json" \
+    -H 'Content-Type: application/json' \
+    --data-binary @- << EOF
+{
+
+  "name":"Loki",
+  "type":"loki",
+  "url":"http://localhost:3100",
   "access":"proxy",
   "basicAuth":false
 }

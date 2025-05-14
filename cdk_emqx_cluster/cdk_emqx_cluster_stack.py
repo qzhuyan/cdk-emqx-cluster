@@ -32,6 +32,8 @@ from constructs import Construct
 
 from cdk_emqx_cluster.cdk_chaos_test import cdk_chaos_test
 
+from jinja2 import Template
+
 ubuntu_arm_ami = ec2.MachineImage.from_ssm_parameter('/aws/service/canonical/ubuntu/server/22.04/stable/current/arm64/hvm/ebs-gp2/ami-id')
 ubuntu_x86_64_ami = ec2.MachineImage.from_ssm_parameter('/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id')
 
@@ -237,7 +239,7 @@ class CdkEmqxClusterStack(cdk.Stack):
                 ulimit -n 80000000
                 cd /root/emqtt-bench
                 ipaddrs=\$(ip addr |grep -o '192.*/32' | sed 's#/32##g' | paste -s -d , -)
-                _build/default/bin/emqtt_bench sub -h %s -t "root/%%c/1/+/abc/#" -c 4000000 --prefix "prefix%d" --ifaddr \$ipaddrs -i 5
+                _build/default/bin/emqtt_bench sub -h %s -t "root/%%c/1/+/abc/#" -c 1000000 --prefix "prefix%d" --ifaddr \$ipaddrs -R 2000 --clean false --session-expiry 604800 --lowmem
                 EOF
                 chmod +x /root/emqtt-bench/run.sh
                 """ % (target, n)
@@ -421,6 +423,7 @@ class CdkEmqxClusterStack(cdk.Stack):
         sg.add_ingress_rule(ec2.Peer.any_ipv4(), ec2.Port.tcp(
             9091), 'prometheus pushgateway')
         sg.add_ingress_rule(ec2.Peer.any_ipv4(), ec2.Port.tcp(3000), 'grafana')
+        sg.add_ingress_rule(ec2.Peer.any_ipv4(), ec2.Port.tcp(3100), 'loki')
         if self.enable_postgres:
             sg.add_ingress_rule(ec2.Peer.any_ipv4(), ec2.Port.tcp(5432), 'postgres')
 
@@ -487,9 +490,9 @@ class CdkEmqxClusterStack(cdk.Stack):
                                           'bash'),
                                       essential=False,
                                       # uncomment for troubleshooting
-                                      logging=ecs.LogDriver.aws_logs(stream_prefix="mon_config_prometheus",
-                                                                    log_retention=aws_logs.RetentionDays.ONE_DAY
-                                                                    ),
+                                      #logging=ecs.LogDriver.aws_logs(stream_prefix="mon_config_prometheus",
+                                      #                              log_retention=aws_logs.RetentionDays.ONE_DAY
+                                      #                              ),
                                       command=["-c",
                                                "echo $DATA | base64 -d - | tee /tmp/private/prometheus.yml"
                                                ],
@@ -586,18 +589,45 @@ class CdkEmqxClusterStack(cdk.Stack):
                                            ecs.PortMapping(container_port=3000)]
                                        )
 
+        task.add_volume(name='loki_config')
+        c_config = task.add_container('config-loki',
+                                      image=ecs.ContainerImage.from_registry(
+                                          'bash'),
+                                      essential=False,
+                                      # uncomment for troubleshooting
+                                      #logging=ecs.LogDriver.aws_logs(stream_prefix="mon_config_prometheus",
+                                      #                              log_retention=aws_logs.RetentionDays.ONE_DAY
+                                      #                              ),
+                                      command=["-c",
+                                               "wget https://raw.githubusercontent.com/grafana/loki/v3.4.1/cmd/loki/loki-local-config.yaml -O loki-config.yaml"
+                                               ]
+                                      )
+
+        c_loki = task.add_container('loki', essential=False,
+                                    image=ecs.ContainerImage.from_registry(
+                                           'grafana/loki:3.4.1'),
+                                       port_mappings=[
+                                           ecs.PortMapping(container_port=3100)]
+                                       )
+        c_loki.add_mount_points(ecs.MountPoint(read_only=False,
+                                               container_path='/mnt/config',
+                                               source_volume='loki_config')
+                                               )
+
         service = ecs.FargateService(self, "EMQXMonitoring",
                                      security_groups=[self.sg],
                                      cluster=cluster,
                                      task_definition=task,
                                      desired_count=1,
-                                     assign_public_ip=False
+                                     assign_public_ip=False,
+                                     min_healthy_percent=0
                                      )
 
         service.connections.allow_from(
             self.sg_efs_mt, ec2.Port.all_traffic(), "Allow EFS access")
 
         listenerGrafana = nlb.add_listener('grafana', port=3000)
+        listenerLoki = nlb.add_listener('loki', port=3100)
         listenerPrometheus = nlb.add_listener('prometheus', port=9090)
         listenerPushGateway = nlb.add_listener('pushgateway', port=9091)
 
@@ -605,6 +635,12 @@ class CdkEmqxClusterStack(cdk.Stack):
             container_name="grafana",
             container_port=3000
         )])
+
+        listenerLoki.add_targets(id='loki', port=3100, targets=[service.load_balancer_target(
+            container_name="loki",
+            container_port=3100
+        )])
+
         listenerPrometheus.add_targets(id='prometheus', port=9090, targets=[service.load_balancer_target(
             container_name="prometheus",
             container_port=9090
@@ -695,6 +731,17 @@ class CdkEmqxClusterStack(cdk.Stack):
                 ec2.MultipartBody.from_user_data(user_data_os_common))
             multipartUserData.add_part(
                 ec2.MultipartBody.from_user_data(userdata_init))
+
+            with open("user_data/config.alloy.template") as f:
+                template = Template(f.read())
+                t = template.render(hostname = name, clustername = self.cluster_name, role = dbBackendRole)
+                ssm.StringParameter(
+                    self,
+                    f"TemplateParameter{name}",
+                    parameter_name=f"/ec2/config/template/alloy/{name}",
+                    string_value=t,
+                )
+
             if self.enable_nginx:
                 multipartUserData.add_part(
                     ec2.MultipartBody.from_user_data(user_data_nginx))
@@ -733,6 +780,7 @@ class CdkEmqxClusterStack(cdk.Stack):
                         target=r53.RecordTarget([vm.instance_private_ip])
                         )
             self.hosts.append(dnsname)
+
 
             # tagging
             if self.user_defined_tags:

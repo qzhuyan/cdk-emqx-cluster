@@ -73,3 +73,10 @@ systemctl start node_exporter
 apt-add-repository ppa:lttng/stable-2.13
 apt-get update
 apt-get install -y lttng-tools lttng-modules-dkms babeltrace liblttng-ust-dev
+
+
+mkdir -p /etc/apt/keyrings/
+wget -q -O - https://apt.grafana.com/gpg.key | gpg --dearmor | sudo tee /etc/apt/keyrings/grafana.gpg > /dev/null
+echo "deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://apt.grafana.com stable main" | sudo tee /etc/apt/sources.list.d/grafana.list
+apt-get update
+apt-get install -y alloy

@@ -5,6 +5,7 @@ net.core.somaxconn=32768
 net.ipv4.tcp_max_syn_backlog=16384
 net.core.netdev_max_backlog=16384
 net.core.optmem_max=16777216
+net.ipv4.tcp_mem=1024 4096 16777216
 net.ipv4.tcp_rmem=1024 4096 16777216
 net.ipv4.tcp_wmem=1024 4096 16777216
 net.ipv4.tcp_max_tw_buckets=1048576
@@ -100,8 +101,9 @@ node {
   db_backend = "rlog"
   db_role = "replicant"
 }
-cluster {
-  core_nodes = "${EMQX_CDK_CORE_NODES}"
+
+cluster.static.seeds = "${EMQX_CDK_CORE_NODES}"
+
 }
 EOF
         ;;
@@ -220,7 +222,7 @@ api_key {
 }
 
 mqtt {
-  max_packet_size = "256mb"
+  max_packet_size = "250mb"
 }
 
 prometheus.vm_statistics_collector=enabled
@@ -291,6 +293,12 @@ esac
 
 maybe_install_license
 install_helpers
+
+REGION=$(curl -s http://169.254.169.254/latest/dynamic/instance-identity/document | grep region | awk -F\" '{print $4}')
+ALLOY_TEMPLATE=$(aws ssm get-parameter --region $REGION --name /ec2/config/template/alloy/`hostname -s` --query Parameter.Value --output text)
+echo "$ALLOY_TEMPLATE" > /etc/alloy/config.alloy
+
+systemctl start alloy
 
 # only start nginx when needed
 systemctl stop nginx.service

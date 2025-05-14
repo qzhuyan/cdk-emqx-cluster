@@ -5,8 +5,8 @@ cluster=$(hostname -f | cut -d . -f 3)
 aws s3 cp --recursive "s3://emqx-cdk-cluster/${cluster}/bin" /usr/local/bin/
 
 cat >> /etc/sysctl.d/99-sysctl.conf <<EOF
-net.core.rmem_default=212992
-net.core.wmem_default=212992
+net.core.rmem_default=4096
+net.core.wmem_default=4096
 net.core.rmem_max=262144000
 net.core.wmem_max=262144000
 net.ipv4.tcp_mem=378150  504200  756300000
@@ -18,7 +18,7 @@ cd /root/
 
 $EMQTT_BENCH_SRC_CMD
 pushd emqtt-bench
-HOME=/root make
+HOME=/root QUICER_DOWNLOAD_FROM_RELEASE=1 make
 popd
 
 $EMQTTB_SRC_CMD

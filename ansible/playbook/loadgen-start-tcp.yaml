@@ -1,0 +1,25 @@
+---
+- name: run TCP
+  hosts: loadgen
+  tasks:
+    - name: render traffic file
+      become: true
+      become_user: root
+      template:
+        src:
+          traffic_file/tls.json
+        dest:
+          /root/emqtt-bench/topic_spec.json
+
+    - name: run the test
+      become: true
+      become_user: root
+      shell: |
+        . /home/runner/OTP/default/activate
+        cd /root/emqtt-bench/;
+        [ ! -f /root/emqtt-bench/emqtt_bench ] && make;
+        which erl
+        source with-ipaddrs.sh || echo "ok"
+        ./emqtt_bench sub  -h emqx-3.int.william,emqx-5.int.william,emqx-4.int.william -t 't/%c' --prefix `hostname -s` -p 1883 -k 0 -c 800000  -R 1000 --lowmem --session-expiry 604800 --reconnect 1000 --ifaddr=$ipaddrs -k 600 | tee test.log
+      args:
+        executable: /bin/bash
