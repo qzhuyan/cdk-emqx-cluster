@@ -104,7 +104,6 @@ node {
 
 cluster.static.seeds = "${EMQX_CDK_CORE_NODES}"
 
-}
 EOF
         ;;
       esac

@@ -14,8 +14,17 @@
         value: "745800 49944000   749166000"
         state: present
 
-
     - name: restart emqx
       service:
         name: emqx
         state: restarted
+
+    - name: cluster info
+      tags: check
+      ansible.builtin.shell: emqx_ctl cluster status
+      register: cluster_info
+
+    - name: check
+      tags: check
+      debug:
+        msg: "{{ cluster_info.stdout }}"

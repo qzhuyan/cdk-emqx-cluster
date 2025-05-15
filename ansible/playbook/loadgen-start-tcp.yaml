@@ -20,6 +20,6 @@
         [ ! -f /root/emqtt-bench/emqtt_bench ] && make;
         which erl
         source with-ipaddrs.sh || echo "ok"
-        ./emqtt_bench sub  -h emqx-3.int.william,emqx-5.int.william,emqx-4.int.william -t 't/%c' --prefix `hostname -s` -p 1883 -k 0 -c 800000  -R 1000 --lowmem --session-expiry 604800 --reconnect 1000 --ifaddr=$ipaddrs -k 600 | tee test.log
+        ./emqtt_bench sub  -h emqx-7.int.william,emqx-6.int.william,emqx-3.int.william,emqx-5.int.william,emqx-4.int.william,emqx-8.int.william -t 't/%c' --prefix `hostname -s` -p 1883 -k 0 -c 80000  -R 2000 --lowmem --session-expiry 604800 --reconnect 1000 --ifaddr=$ipaddrs -k 600 --clean false | tee test.log
       args:
         executable: /bin/bash
