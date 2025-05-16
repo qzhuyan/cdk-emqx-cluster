@@ -28,3 +28,12 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=admin
     volumes:
       - ./grafana:/etc/grafana/provisioning/datasources
+
+  loki:
+    image: grafana/loki:3.4.1
+    container_name: loki
+    ports:
+      - 3100:3100
+    restart: unless-stopped
+    volumes:
+      - ./mnt/efs-data/loki_data:/loki

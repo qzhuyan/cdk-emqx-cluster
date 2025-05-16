@@ -57,6 +57,34 @@ case $op in
             sleep 1
         done
     ;;
+    up2)
+        helpdir=$absdir/_files/dashboard-replay
+        cp -rf ${helpdir}/* "$env_dir"
+
+        if [ -f $(dirname $efs_tar)/loki-data.tar.gz ]; then
+            loki_tar=$(realpath $(dirname $efs_tar)/loki-data.tar.gz)
+        fi
+        pushd "$env_dir"
+        mkdir -p mnt/efs-data/tsdb_data
+        tar zxvf "$efs_tar" -C mnt/efs-data/tsdb_data --strip-components=1 ./
+
+        # if we find loki data
+        if [ -f "$loki_tar" ]; then
+            mkdir -p mnt/efs-data/loki_data
+            tar zxvf "$loki_tar" -C mnt/efs-data/loki_data ./
+        fi
+
+        chmod -R 777 mnt
+        rm -f mnt/efs-data/tsdb_data/lock
+        docker-compose up -d
+        popd
+        until $absdir/grafana_setup.sh localhost:3000;
+        do
+            echo "retry grafana dashboards"
+            sleep 1
+        done
+    ;;
+
     down)
         pushd "$env_dir"
         docker-compose down

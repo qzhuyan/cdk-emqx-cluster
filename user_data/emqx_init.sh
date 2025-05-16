@@ -92,6 +92,7 @@ node {
   db_backend = "rlog"
   db_role = "core"
 }
+cluster.discovery_strategy = static
 EOF
           ;;
 
@@ -102,6 +103,7 @@ node {
   db_role = "replicant"
 }
 
+cluster.discovery_strategy = static
 cluster.static.seeds = "${EMQX_CDK_CORE_NODES}"
 
 EOF
@@ -137,15 +139,6 @@ EOF
   cat <<EOF >> /etc/emqx/emqx.conf
 node {
   name: $nodename
-}
-
-cluster {
- discovery_strategy = etcd
-
- etcd {
-   server: "http://etcd0.${domain}:2379"
-   ssl.enable: false
- }
 }
 
 listeners.tcp.default {

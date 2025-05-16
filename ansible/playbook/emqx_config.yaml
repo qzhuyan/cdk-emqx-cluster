@@ -1,0 +1,45 @@
+---
+- name: Patch EMQX configs
+  hosts: emqx
+  become: yes
+  tasks:
+    - name: dist port buffer
+      ansible.builtin.lineinfile:
+        path: /etc/emqx/emqx.conf
+        line: node.dist_buffer_size=2097151
+        state: present
+
+    - name: lcr enabling
+      ansible.builtin.lineinfile:
+        path: /etc/emqx/emqx.conf
+        line: broker.enable_linear_channel_registry = true
+        state: present
+
+    - name: global reg disabling
+      ansible.builtin.lineinfile:
+        path: /etc/emqx/emqx.conf
+        line: broker.enable_session_registry = false
+        state: present
+
+
+    - name: global reg disabling
+      ansible.builtin.lineinfile:
+        path: /etc/emqx/emqx.conf
+        line:   cluster.discovery_strategy = static
+        regexp: 'discovery_strategy = .*'
+        state: present
+
+    - name: no embeded mode
+      tags: interactive
+      ansible.builtin.lineinfile:
+        path: /usr/lib/emqx/bin/emqx
+        line: |
+          CODE_LOADING_MODE="${CODE_LOADING_MODE:-interactive}"
+        regexp: 'CODE_LOADING_MODE=.*'
+        state: present
+
+    - name: vmargs mnesia
+      ansible.builtin.lineinfile:
+        path: /etc/emqx/vm.args
+        line: -mnesia mnesia_tm_async_dist false
+        state: present

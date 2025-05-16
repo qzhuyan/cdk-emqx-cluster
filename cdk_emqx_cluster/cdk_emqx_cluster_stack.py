@@ -438,6 +438,17 @@ class CdkEmqxClusterStack(cdk.Stack):
                                                 uid="65534",  # nobody
                                                 gid="65534"),
                                             file_system=self.shared_efs)
+        self.ap_loki_data = efs.AccessPoint(self, "shared-data-loki",
+                                            path='/loki_data',
+                                            create_acl=efs.Acl(
+                                                owner_uid="65534",
+                                                owner_gid="65534",
+                                                permissions="777"
+                                            ),
+                                            posix_user=efs.PosixUser(
+                                                uid="65534",  # nobody
+                                                gid="65534"),
+                                            file_system=self.shared_efs)
         if self.enable_postgres:
             self.ap_pgsql_data = efs.AccessPoint(self, "shared-data-pgsql",
                                                  path='/pgsql_data',
@@ -460,6 +471,15 @@ class CdkEmqxClusterStack(cdk.Stack):
                     access_point_id=self.ap_prom_data.access_point_id),
             )
         )
+        self.loki_data_vol = ecs.Volume(
+            name="loki_data",
+            efs_volume_configuration=ecs.EfsVolumeConfiguration(
+                file_system_id=self.shared_efs.file_system_id,
+                transit_encryption='ENABLED',
+                authorization_config=ecs.AuthorizationConfig(
+                    access_point_id=self.ap_loki_data.access_point_id),
+            )
+        )
         if self.enable_postgres:
             self.pgsql_data_vol = ecs.Volume(
                 name="pgsql_data",
@@ -475,6 +495,7 @@ class CdkEmqxClusterStack(cdk.Stack):
 
         volumes = [
             self.prom_data_vol,
+            self.loki_data_vol
         ]
         if self.enable_postgres:
             volumes.append(self.pgsql_data_vol)
@@ -613,6 +634,8 @@ class CdkEmqxClusterStack(cdk.Stack):
                                                container_path='/mnt/config',
                                                source_volume='loki_config')
                                                )
+        c_loki.add_mount_points(ecs.MountPoint(
+            read_only=False, container_path='/loki', source_volume=self.loki_data_vol.name))
 
         service = ecs.FargateService(self, "EMQXMonitoring",
                                      security_groups=[self.sg],
@@ -834,10 +857,11 @@ class CdkEmqxClusterStack(cdk.Stack):
                                                   for x in self.emqx_vms])
 
     def setup_etcd(self):
-        # if there's no EMQ X nodes (for example, starting up cluster
+        # .1 if there's no EMQ X nodes (for example, starting up cluster
         # just to analyze past data from Prometheus/Postgres), we
         # don't neet to spin up etcd
-        if self.numEmqx < 2:
+        # 2. mria rlog backend use static discovery
+        if self.numEmqx < 2 or self.dbBackend == "rlog":
             return
 
         # we let CDK create the first role for this service in the
